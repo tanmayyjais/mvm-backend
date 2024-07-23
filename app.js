@@ -64,7 +64,7 @@ io.on('connection', (socket) => {
 
 
 app.get("/", (req, res) => {
-    res.send({ status: "I love you tons Ms. Prettiest Riddhi Heda.🥰" });
+    res.send({ status: "Started" });
 });
 
 app.post("/userregister", async (req, res) => {
