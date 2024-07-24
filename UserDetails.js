@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
-const bookingSchema = require('./Booking');
+const NormalBookingSchema = require('./NormalBooking').schema; 
+const ExclusiveBookingSchema = require('./ExclusiveBooking').schema;
 const notificationSchema = require('./Notification');
 
 const UserDetailSchema = new mongoose.Schema({
@@ -13,7 +14,8 @@ const UserDetailSchema = new mongoose.Schema({
   photoUrl: { type: String },
   password: { type: String },
   memberStatus: { type: String, enum: ['guest', 'pending', 'verified', 'rejected'], default: 'guest' },
-  bookings: [bookingSchema],
+  normalBookings: [NormalBookingSchema],
+  exclusiveBookings: [ExclusiveBookingSchema],
   instagram_id: { type: String },
   referrals: [{
     senderEmail: String,

@@ -43,6 +43,12 @@ const ExclusiveEvent = mongoose.model("ExclusiveEvent");
 require('./Carousel');
 const Carousel = mongoose.model("Carousel");
 
+require('./NormalBooking');
+const NormalBooking = mongoose.model("NormalBooking");
+
+require('./ExclusiveBooking');
+const ExclusiveBooking = mongoose.model("ExclusiveBooking");
+
 const changeStream = User.watch();
 
 changeStream.on('change', (change) => {
@@ -95,7 +101,8 @@ app.post("/userregister", async (req, res) => {
             instagram_id: null,
             referrals: [],
             referralRequests: [],
-            bookings: [],
+            normalBookings: [],
+            exclusiveBookings: [],
             notifications: [] // Initialize empty notifications array
         });
 
@@ -137,7 +144,8 @@ app.post("/checkUser", async (req, res) => {
         instagram_id: oldUser.instagram_id,
         referrals: oldUser.referrals,
         referralRequests: oldUser.referralRequests,
-        bookings: oldUser.bookings,
+        normalBookings: oldUser.normalBookings,
+        exclusiveBookings: oldUser.exclusiveBookings,
         notifications: oldUser.notifications,
       };
       return res.status(200).send({
@@ -390,64 +398,110 @@ app.post('/payment-sheet', async (req, res) => {
 });
   
 app.post('/update-booking', async (req, res) => {
-    try {
-      const { email, event, ticketCount, paymentId } = req.body;
-      console.log('Received data:', { email, event, ticketCount, paymentId });
-  
-      // Validate email
-      const user = await User.findOne({ email });
-      if (!user) {
-        console.error('User not found:', email);
-        throw new Error('User not found');
-      }
-  
-      const totalAmount = event.price * ticketCount;
-      console.log('Calculated total amount:', totalAmount);
-  
-      const bookingId = await generateUniqueId();
-  
-      const booking = {
-        id: bookingId,
-        event: event._id,
-        dateOfBooking: new Date(),
-        numberOfTickets: ticketCount,
-        isCheckedIn: false,
-        pricePerTicket: event.price,
-        totalAmount: totalAmount,
-        paymentId: paymentId
-      };
-  
-      console.log('Booking object:', booking);
+  try {
+    const { email, event, ticketCount, paymentId } = req.body;
+    console.log('Received data:', { email, event, ticketCount, paymentId });
 
-      const qrCodeData = bookingId.toString(); // QR code data is just the booking ID
-      const qrCodeUrl = await qrcode.toDataURL(qrCodeData);
-      booking.qrCodeUrl = qrCodeUrl;
-  
-      const result = await User.updateOne(
-        { email },
-        { $push: { bookings: booking } }
-      );
-  
-      console.log('Update result:', result);
-  
-      if (result.nModified === 0) {
-        console.error('No changes made for user:', email);
-        throw new Error('User not found or no changes made');
-      }
-  
-      const updatedUser = await User.findOne({ email }).populate('bookings.event');
-  
-      res.json({ message: 'Booking updated successfully', bookings: updatedUser.bookings });
-    } catch (error) {
-      console.error('Error in /update-booking:', error.message);
-      res.status(500).json({ error: error.message });
+    // Validate email
+    const user = await User.findOne({ email });
+    if (!user) {
+      console.error('User not found:', email);
+      throw new Error('User not found');
     }
+
+    // Search for the event in the events schema
+    let eventDocument = await Event.findById(event._id);
+    let bookingModel = NormalBooking;
+    let bookingArray = 'normalBookings';
+    let eventType = 'normal';
+
+    if (!eventDocument) {
+      // If not found, search for the event in the exclusiveEvents schema
+      eventDocument = await ExclusiveEvent.findById(event._id);
+      if (!eventDocument) {
+        console.error('Event not found:', event._id);
+        throw new Error('Event not found');
+      }
+      bookingModel = ExclusiveBooking;
+      bookingArray = 'exclusiveBookings';
+      eventType = 'exclusive';
+    }
+
+    const totalAmount = eventDocument.price * ticketCount;
+    console.log('Calculated total amount:', totalAmount);
+
+    const bookingId = await generateUniqueId();
+
+    const booking = {
+      id: bookingId,
+      event: eventDocument._id,
+      dateOfBooking: new Date(),
+      numberOfTickets: ticketCount,
+      isCheckedIn: false,
+      pricePerTicket: eventDocument.price,
+      totalAmount: totalAmount,
+      paymentId: paymentId,
+      eventType: eventType, // Include eventType in booking
+    };
+
+    console.log('Booking object:', booking);
+
+    const qrCodeData = bookingId.toString(); // QR code data is just the booking ID
+    const qrCodeUrl = await qrcode.toDataURL(qrCodeData);
+    booking.qrCodeUrl = qrCodeUrl;
+
+    // Create a new booking instance
+    const newBooking = new bookingModel(booking);
+
+    // Save the new booking to the appropriate array in the User schema
+    const result = await User.updateOne(
+      { email },
+      { $push: { [bookingArray]: newBooking } }
+    );
+
+    console.log('Update result:', result);
+
+    if (result.nModified === 0) {
+      console.error('No changes made for user:', email);
+      throw new Error('User not found or no changes made');
+    }
+
+    const updatedUser = await User.findOne({ email }).populate({
+      path: `${bookingArray}.event`,
+      model: bookingArray === 'normalBookings' ? 'Event' : 'ExclusiveEvent',
+    });
+
+    res.json({ message: 'Booking updated successfully', bookings: updatedUser[bookingArray] });
+  } catch (error) {
+    console.error('Error in /update-booking:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/get-bookings', async (req, res) => {
+  try {
+    const { email } = req.query;
+
+    const user = await User.findOne({ email }).populate('normalBookings.event').populate('exclusiveBookings.event');
+    if (!user) {
+      return res.status(404).send({ status: 'error', data: 'User not found' });
+    }
+
+    res.send({
+      status: 'ok',
+      normalBookings: user.normalBookings,
+      exclusiveBookings: user.exclusiveBookings,
+    });
+  } catch (error) {
+    console.error('Error fetching bookings:', error);
+    res.status(500).send({ status: 'error', data: error.message });
+  }
 });
 
 app.get('/get-user-details', async (req, res) => {
   try {
-    const guests = await User.find({}, 'phoneNo memberStatus'); // Only select the fields needed
-    res.send(guests);
+    const users = await User.find({}, 'phoneNo memberStatus'); // Only select the fields needed
+    res.send(users);
   } catch (error) {
     console.error('Error fetching user details:', error);
     res.status(500).send({ status: 'error', message: 'Failed to fetch user details' });
