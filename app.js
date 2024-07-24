@@ -64,7 +64,7 @@ io.on('connection', (socket) => {
 
 
 app.get("/", (req, res) => {
-    res.send({ status: "Server Started Successfully" });
+    res.send({ status: "Sidhant lodu" });
 });
 
 app.post("/userregister", async (req, res) => {
